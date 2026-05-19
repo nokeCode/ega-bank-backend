@@ -1,4 +1,6 @@
 package com.ega.bank.egabankbackend.enums;
 
-public class CompteType {
+public enum CompteType {
+    COMPTE_EPARGNE,
+    COMPTE_COURANT
 }

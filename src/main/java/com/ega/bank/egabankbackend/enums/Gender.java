@@ -1,4 +1,7 @@
 package com.ega.bank.egabankbackend.enums;
 
-public class Gender {
+public enum Gender {
+    MASCULIN,
+    FEMININ,
+    AUTRE
 }

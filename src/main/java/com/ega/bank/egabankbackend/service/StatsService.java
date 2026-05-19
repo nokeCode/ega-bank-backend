@@ -5,38 +5,33 @@ import com.ega.bank.egabankbackend.dto.WeeklyStatsDTO;
 import com.ega.bank.egabankbackend.dto.StatsComparison;
 import com.ega.bank.egabankbackend.entity.DailyStats;
 import com.ega.bank.egabankbackend.repository.*;
-import lombok.RequiredArgsConstructor;
+import lombok.AllArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import com.ega.bank.egabankbackend.repository.CompteRepository;
-
-import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.temporal.WeekFields;
 import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
+@AllArgsConstructor
 @Transactional
 public class StatsService {
     
-    private final DailyStatsRepository dailyStatsRepository;
-    private final ClientRepository clientRepository;
-    private final CompteRepository compteRepository;
-    private final TransactionRepository transactionRepository;
+    private DailyStatsRepository dailyStatsRepository;
+    private ClientRepository clientRepository;
+    private CompteRepository compteRepository;
+    private TransactionRepository transactionRepository;
     
     /**
-     * Enregistrer les statistiques quotidiennes
+     * Enregistrer les statistiques quotidiennes automatiquement
      * Cette méthode s'exécute automatiquement tous les jours à minuit
      */
     @Scheduled(cron = "0 0 0 * * *") // Tous les jours à minuit
-    public void recordDailyStats() {
+    public void recordDailyStatsScheduled() {
         LocalDate today = LocalDate.now();
         LocalDate yesterday = today.minusDays(1);
         
@@ -103,7 +98,7 @@ public class StatsService {
         
         // S'il n'y a pas de stats, enregistrer celles d'aujourd'hui
         if (stats.isEmpty()) {
-            recordDailyStats();
+            recordDailyStatsScheduled();
             stats = dailyStatsRepository.findByDateBetweenOrderByDateAsc(sevenDaysAgo, today);
         }
         
@@ -198,6 +193,162 @@ public class StatsService {
                 .dailyRevenue(stats.getDailyRevenue())
                 .totalTransactions(stats.getTotalTransactions())
                 .transactionsToday(stats.getTransactionsToday())
+                .build();
+    }
+
+    /**
+     * Enregistrer les statistiques quotidiennes manuellement via DTO
+     */
+    @Transactional
+    public DailyStatsDTO recordDailyStats(DailyStatsDTO dailyStatsDTO) {
+        // Vérifier si des stats existent déjà pour cette date
+        java.util.Optional<DailyStats> existingStats = dailyStatsRepository.findByDate(dailyStatsDTO.getDate());
+        
+        DailyStats dailyStats;
+        if (existingStats.isPresent()) {
+            // Mettre à jour les stats existantes
+            dailyStats = existingStats.get();
+            dailyStats.setTotalClients(dailyStatsDTO.getTotalClients());
+            dailyStats.setNewClientsToday(dailyStatsDTO.getNewClientsToday());
+            dailyStats.setTotalAccounts(dailyStatsDTO.getTotalAccounts());
+            dailyStats.setNewAccountsToday(dailyStatsDTO.getNewAccountsToday());
+            dailyStats.setTotalBalance(dailyStatsDTO.getTotalBalance());
+            dailyStats.setDailyRevenue(dailyStatsDTO.getDailyRevenue());
+            dailyStats.setTotalTransactions(dailyStatsDTO.getTotalTransactions());
+            dailyStats.setTransactionsToday(dailyStatsDTO.getTransactionsToday());
+        } else {
+            // Créer une nouvelle entité DailyStats à partir du DTO
+            dailyStats = DailyStats.builder()
+                    .date(dailyStatsDTO.getDate())
+                    .totalClients(dailyStatsDTO.getTotalClients())
+                    .newClientsToday(dailyStatsDTO.getNewClientsToday())
+                    .totalAccounts(dailyStatsDTO.getTotalAccounts())
+                    .newAccountsToday(dailyStatsDTO.getNewAccountsToday())
+                    .totalBalance(dailyStatsDTO.getTotalBalance())
+                    .dailyRevenue(dailyStatsDTO.getDailyRevenue())
+                    .totalTransactions(dailyStatsDTO.getTotalTransactions())
+                    .transactionsToday(dailyStatsDTO.getTransactionsToday())
+                    .build();
+        }
+        
+        // Sauvegarder l'entité
+        DailyStats savedStats = dailyStatsRepository.save(dailyStats);
+        
+        // Retourner le DTO mappé
+        return mapToDTO(savedStats);
+    }
+
+    /**
+     * Récupérer les statistiques de toutes les semaines
+     */
+    @Transactional(readOnly = true)
+    public List<WeeklyStatsDTO> getAllWeeklyStats() {
+        List<DailyStats> allStats = dailyStatsRepository.findAll();
+        
+        if (allStats.isEmpty()) {
+            return List.of();
+        }
+        
+        // Grouper par semaine et créer les WeeklyStatsDTO
+        List<WeeklyStatsDTO> weeklyStats = new java.util.ArrayList<>();
+        // Pour maintenant, retourner les 4 dernières semaines
+        LocalDate today = LocalDate.now();
+        for (int week = 0; week < 4; week++) {
+            LocalDate endOfWeek = today.minusWeeks(week);
+            LocalDate startOfWeek = endOfWeek.minusDays(6);
+            
+            List<DailyStats> weekStats = allStats.stream()
+                    .filter(s -> !s.getDate().isBefore(startOfWeek) && !s.getDate().isAfter(endOfWeek))
+                    .collect(java.util.stream.Collectors.toList());
+            
+            if (!weekStats.isEmpty()) {
+                List<DailyStatsDTO> weeklyData = weekStats.stream()
+                        .map(this::mapToDTO)
+                        .collect(java.util.stream.Collectors.toList());
+                
+                StatsComparison comparison = calculateGrowth(weekStats);
+                
+                weeklyStats.add(WeeklyStatsDTO.builder()
+                        .weeklyData(weeklyData)
+                        .comparison(comparison)
+                        .build());
+            }
+        }
+        
+        return weeklyStats;
+    }
+
+    /**
+     * Récupérer les données d'une semaine spécifique
+     */
+    @Transactional(readOnly = true)
+    public List<DailyStatsDTO> getWeekData(int weekNumber, int year) {
+        List<DailyStats> stats = dailyStatsRepository.findAll();
+        
+        return stats.stream()
+                .filter(s -> s.getDate().getYear() == year)
+                .filter(s -> s.getDate().get(WeekFields.ISO.weekOfWeekBasedYear()) == weekNumber)
+                .map(this::mapToDTO)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Charger les données fictives pour une semaine (7 jours)
+     */
+    @Transactional
+    public WeeklyStatsDTO loadMockWeekData() {
+        LocalDate today = LocalDate.now();
+        LocalDate sevenDaysAgo = today.minusDays(6);
+        
+        // Supprimer les données existantes pour cette semaine
+        for (LocalDate date = sevenDaysAgo; !date.isAfter(today); date = date.plusDays(1)) {
+            dailyStatsRepository.findByDate(date).ifPresent(dailyStatsRepository::delete);
+        }
+        
+        // Créer les données fictives
+        List<DailyStatsDTO> mockData = new java.util.ArrayList<>();
+        for (LocalDate date = sevenDaysAgo; !date.isAfter(today); date = date.plusDays(1)) {
+            DailyStatsDTO dto = DailyStatsDTO.builder()
+                    .date(date)
+                    .totalClients(10 + (int)(Math.random() * 20))
+                    .newClientsToday((int)(Math.random() * 5))
+                    .totalAccounts(15 + (int)(Math.random() * 25))
+                    .newAccountsToday((int)(Math.random() * 3))
+                    .totalBalance(new BigDecimal(50000 + (int)(Math.random() * 50000)))
+                    .dailyRevenue(new BigDecimal(5000 + (int)(Math.random() * 10000)))
+                    .totalTransactions(100 + (int)(Math.random() * 100))
+                    .transactionsToday((int)(Math.random() * 30))
+                    .build();
+            
+            // Sauvegarder dans la base de données
+            DailyStats dailyStats = DailyStats.builder()
+                    .date(date)
+                    .totalClients(dto.getTotalClients())
+                    .newClientsToday(dto.getNewClientsToday())
+                    .totalAccounts(dto.getTotalAccounts())
+                    .newAccountsToday(dto.getNewAccountsToday())
+                    .totalBalance(dto.getTotalBalance())
+                    .dailyRevenue(dto.getDailyRevenue())
+                    .totalTransactions(dto.getTotalTransactions())
+                    .transactionsToday(dto.getTransactionsToday())
+                    .build();
+            
+            dailyStatsRepository.save(dailyStats);
+            mockData.add(dto);
+        }
+        
+        StatsComparison comparison = StatsComparison.builder()
+                .clientsGrowth(calculatePercentageGrowth(mockData.get(0).getTotalClients(), 
+                        mockData.get(mockData.size() - 1).getTotalClients()))
+                .accountsGrowth(calculatePercentageGrowth(mockData.get(0).getTotalAccounts(), 
+                        mockData.get(mockData.size() - 1).getTotalAccounts()))
+                .balanceGrowth(calculatePercentageGrowth(mockData.get(0).getTotalBalance().doubleValue(), 
+                        mockData.get(mockData.size() - 1).getTotalBalance().doubleValue()))
+                .build();
+        
+        return WeeklyStatsDTO.builder()
+                .weeklyData(mockData)
+                .comparison(comparison)
                 .build();
     }
 }

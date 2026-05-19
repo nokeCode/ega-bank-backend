@@ -8,7 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
-import java.time.temporal.ChronoField;
+import java.time.temporal.WeekFields;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,21 +20,6 @@ public class StatsController {
 
     @Autowired
     private StatsService statsService;
-
-    /**
-     * Récupérer les statistiques par défaut (semaine actuelle)
-     */
-    @GetMapping
-    public ResponseEntity<?> getStats() {
-        try {
-            WeeklyStatsDTO weeklyStats = statsService.getWeeklyStats();
-            return ResponseEntity.ok(weeklyStats);
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(Map.of(
-                "error", "Erreur lors de la récupération des statistiques: " + e.getMessage()
-            ));
-        }
-    }
 
     /**
      * Récupérer les statistiques de la semaine actuelle
@@ -88,17 +73,18 @@ public class StatsController {
     public ResponseEntity<?> checkAndResetWeek() {
         try {
             LocalDate today = LocalDate.now();
-            LocalDate sevenDaysAgo = today.minusDays(6);
+            int currentWeek = today.get(WeekFields.ISO.weekOfWeekBasedYear());
+            int currentYear = today.getYear();
 
-            // Récupérer les stats de cette semaine via le service
-            WeeklyStatsDTO thisWeekData = statsService.getWeeklyStats();
+            // Chercher les données de cette semaine
+            List<DailyStatsDTO> thisWeekData = statsService.getWeekData(currentWeek, currentYear);
 
             // Nouvelle semaine si pas de données
-            boolean hasData = thisWeekData != null && !thisWeekData.getWeeklyData().isEmpty();
+            boolean shouldReset = thisWeekData == null || thisWeekData.isEmpty();
 
             return ResponseEntity.ok().body(Map.of(
-                "hasData", hasData,
-                "currentDate", today
+                "reset", shouldReset,
+                "weekNumber", currentWeek
             ));
         } catch (Exception e) {
             return ResponseEntity.status(500).body(Map.of(

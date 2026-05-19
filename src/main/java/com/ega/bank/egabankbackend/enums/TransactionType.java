@@ -1,4 +1,7 @@
 package com.ega.bank.egabankbackend.enums;
 
-public class TransactionType {
+public enum TransactionType {
+    DEPOT,
+    RETRAIT,
+    VIREMENT
 }
