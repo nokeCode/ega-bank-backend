@@ -598,7 +598,7 @@ Vous avez une idée ? [Ouvrez une discussion](https://github.com/votre-username/
 
 **⭐ Si ce projet vous a été utile, n'hésitez pas à lui donner une étoile ! ⭐**
 
-Made with ❤️ by [Votre Nom](https://github.com/votre-username)
+Made with IAI by [Germain AHOBLI](https://github.com/nokeCode)
 
 [⬆ Retour en haut](#-ega-bank---backend-api)
 
